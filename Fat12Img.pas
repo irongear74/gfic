@@ -1,4 +1,4 @@
-unit Fat12Img;
+ï»¿unit Fat12Img;
 
 interface
 
@@ -17,7 +17,7 @@ type
     FileSize: LongWord;
   end;
 
-  TFloppyFormat = record
+{  TFloppyFormat = record
     BytesPerSector: Integer;
     SectorsPerCluster: Integer;
     ReservedSectors: Integer;
@@ -25,7 +25,84 @@ type
     RootDirEntries: Integer;
     SectorsPerFat: Integer;
     HiddenSectors: Integer;
+  end;   }
+
+type
+  TFloppyFormat = record
+    BytesPerSector: Word;
+    SectorsPerCluster: Byte;
+    ReservedSectors: Word;
+    NumberOfFats: Byte;
+    RootDirEntries: Word;
+    TotalSectors: Word;
+    MediaDescriptor: Byte;
+    SectorsPerFat: Word;
+    SectorsPerTrack: Word;
+    Heads: Word;
+    HiddenSectors: LongWord;
+    RootDirSectors: Word;  // vypoÄÃ­tanÃ©
   end;
+
+const
+  fmt360: TFloppyFormat = (
+    BytesPerSector: 512;
+    SectorsPerCluster: 1;
+    ReservedSectors: 1;
+    NumberOfFats: 2;
+    RootDirEntries: 224;
+    TotalSectors: 720;
+    MediaDescriptor: $F0;
+    SectorsPerFat: 9;
+    SectorsPerTrack: 9;
+    Heads: 2;
+    HiddenSectors: 0;
+    RootDirSectors: (224 * SizeOf(TFat12DirEntry) + 511) div 512
+  );
+
+  fmt720: TFloppyFormat = (
+    BytesPerSector: 512;
+    SectorsPerCluster: 2;
+    ReservedSectors: 1;
+    NumberOfFats: 2;
+    RootDirEntries: 224;
+    TotalSectors: 1440;
+    MediaDescriptor: $F0;
+    SectorsPerFat: 9;
+    SectorsPerTrack: 9;
+    Heads: 2;
+    HiddenSectors: 0;
+    RootDirSectors: (224 * SizeOf(TFat12DirEntry) + 511) div 512
+  );
+
+  fmt1200: TFloppyFormat = (
+    BytesPerSector: 512;
+    SectorsPerCluster: 1;
+    ReservedSectors: 1;
+    NumberOfFats: 2;
+    RootDirEntries: 224;
+    TotalSectors: 2400;
+    MediaDescriptor: $F0;
+    SectorsPerFat: 9;
+    SectorsPerTrack: 15;
+    Heads: 2;
+    HiddenSectors: 0;
+    RootDirSectors: (224 * SizeOf(TFat12DirEntry) + 511) div 512
+  );
+
+fmt1440: TFloppyFormat = (
+  BytesPerSector: 512;
+  SectorsPerCluster: 1;
+  ReservedSectors: 1;
+  NumberOfFats: 2;
+  RootDirEntries: 224;
+  TotalSectors: 2880;       // 1,44MB = 2880 * 512B
+  MediaDescriptor: $F0;
+  SectorsPerFat: 9;
+  SectorsPerTrack: 18;
+  Heads: 2;
+  HiddenSectors: 0;
+  RootDirSectors: (224 * SizeOf(TFat12DirEntry) + 511) div 512
+);
 
 const
   ATTR_READONLY  = $01;
@@ -221,7 +298,7 @@ var
 begin
   for i := 0 to fmt.RootDirEntries - 1 do
   begin
-    // skopíruj konkrétny zápis do entry
+    // skopÃ­ruj konkrÃ©tny zÃ¡pis do entry
     Move(DirEntries[i * SizeOf(TFat12DirEntry)], entry, SizeOf(TFat12DirEntry));
     if (entry.Name[0] = #0) or (Byte(entry.Name[0]) = $E5) then
       Exit(i);
@@ -710,7 +787,7 @@ begin
 
     fs.WriteBuffer(BootSector[0], Length(BootSector));
 
-    // FAT (2 kópie)
+    // FAT (2 kÃ³pie)
     SetLength(FAT, fmt.SectorsPerFat * fmt.BytesPerSector);
     FillChar(FAT[0], Length(FAT), 0);
     FAT[0] := fmt.MediaDescriptor;
@@ -724,7 +801,7 @@ begin
     FillChar(RootDir[0], Length(RootDir), 0);
     fs.WriteBuffer(RootDir[0], Length(RootDir));
 
-    // Zvyšok (data area) len vyplníme nulami
+    // ZvyÅ¡ok (data area) len vyplnÃ­me nulami
     DataSize := Int64(fmt.TotalSectors) * fmt.BytesPerSector
                 - fs.Size;
     if DataSize > 0 then
