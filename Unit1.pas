@@ -101,6 +101,8 @@ implementation
 
 {$R *.dfm}
 
+uses Fat12Img;
+
 procedure TForm1.Button1Click(Sender: TObject);
 begin
   ListFiles('zzz.img');
