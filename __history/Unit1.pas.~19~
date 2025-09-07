@@ -1,0 +1,515 @@
+unit Unit1;
+
+interface
+
+uses
+  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ComCtrls;
+
+type
+  TFat12DirEntry = packed record
+    Name: array[0..7] of AnsiChar;
+    Ext: array[0..2] of AnsiChar;
+    Attr: Byte;
+    Reserved: array[0..9] of Byte;
+    Time: Word;
+    Date: Word;
+    FirstCluster: Word;
+    FileSize: LongWord;
+  end;
+
+type
+  TFloppyFormat = record
+    BytesPerSector: Integer;
+    SectorsPerCluster: Integer;
+    ReservedSectors: Integer;
+    NumberOfFats: Integer;
+    RootDirEntries: Integer;
+    SectorsPerFat: Integer;
+    HiddenSectors: Integer;
+  end;
+
+//1.4mb
+{const
+  BytesPerSector     = 512;
+  SectorsPerCluster  = 1;
+  ReservedSectors    = 1;
+  NumberOfFats       = 2;
+  RootDirEntries     = 224;
+  SectorsPerFat      = 9;
+  HiddenSectors      = 0;
+  RootDirSectors     = (RootDirEntries * SizeOf(TFat12DirEntry) + (BytesPerSector-1)) div BytesPerSector;
+  RootDirStart       = (ReservedSectors + NumberOfFats * SectorsPerFat) * BytesPerSector;
+}
+
+//720kb
+{const
+  BytesPerSector     = 512;
+  SectorsPerCluster  = 2;
+  ReservedSectors    = 1;
+  NumberOfFats       = 2;
+  RootDirEntries     = 112;
+  SectorsPerFat      = 3;
+  HiddenSectors      = 0;
+  RootDirSectors     = (RootDirEntries * SizeOf(TFat12DirEntry) + (BytesPerSector-1)) div BytesPerSector;
+  RootDirStart       = (ReservedSectors + NumberOfFats * SectorsPerFat) * BytesPerSector;
+  }
+
+//360kb
+const
+  BytesPerSector     = 512;
+  SectorsPerCluster  = 2;
+  ReservedSectors    = 1;
+  NumberOfFats       = 2;
+  RootDirEntries     = 112;
+  SectorsPerFat      = 2;
+  HiddenSectors      = 0;
+  RootDirSectors     = (RootDirEntries * SizeOf(TFat12DirEntry) + (BytesPerSector-1)) div BytesPerSector;
+  RootDirStart       = (ReservedSectors + NumberOfFats * SectorsPerFat) * BytesPerSector;
+
+type
+  TForm1 = class(TForm)
+    Button1: TButton;
+    RichEdit1: TRichEdit;
+    Button2: TButton;
+    procedure Button1Click(Sender: TObject);
+    procedure Button2Click(Sender: TObject);
+  private
+    { Private declarations }
+  public
+    { Public declarations }
+    function DetectFloppyFormat(const ImgName: string): TFloppyFormat;
+    procedure ListFiles(const Img: string);
+    procedure DeleteFileFromImage(const ImgName, FileName: string);
+    function ReadFATEntry(const FAT: TBytes; Cluster: Word): Word;
+    procedure WriteFATEntry(var FAT: TBytes; Cluster, Value: Word);
+    procedure CopyFileFromImage(const ImgName, FileName, HostFile: string);
+    procedure AddFileToImage(const ImgName, HostFile: string);
+    procedure ListFreeClusters(const ImgName: string);
+  end;
+
+var
+  Form1: TForm1;
+
+implementation
+
+{$R *.dfm}
+
+procedure TForm1.Button1Click(Sender: TObject);
+begin
+  ListFiles('zzz.img');
+end;
+
+procedure TForm1.ListFiles(const Img: string);
+var
+  fs: TFileStream;
+  dir: array[0..RootDirEntries-1] of TFat12DirEntry;
+  i: Integer;
+  fname: string;
+begin
+  fs := TFileStream.Create(Img, fmOpenRead);
+  try
+    fs.Position := RootDirStart;
+    fs.ReadBuffer(dir, SizeOf(dir));
+
+    for i := 0 to High(dir) do
+    begin
+      if dir[i].Name[0] = #0 then Break; // empty
+      if (Byte(dir[i].Name[0]) <> $E5) and (dir[i].Attr and $08 = 0) then
+      begin
+        fname := Trim(string(dir[i].Name)) + '.' + Trim(string(dir[i].Ext));
+        //Writeln(Format('%-12s %8d bytes Cluster=%d',[fname, dir[i].FileSize, dir[i].FirstCluster]));
+        richedit1.lines.add(Format('%-12s %8d bytes Cluster=%d',[fname, dir[i].FileSize, dir[i].FirstCluster]));
+      end;
+    end;
+  finally
+    fs.Free;
+  end;
+end;
+
+procedure TForm1.Button2Click(Sender: TObject);
+begin
+  DeleteFileFromImage('zzz.img', 'click.com');
+end;
+
+
+procedure TForm1.DeleteFileFromImage(const ImgName, FileName: string);
+var
+  fs: TFileStream;
+  dir: array[0..RootDirEntries-1] of TFat12DirEntry;
+  FAT: TBytes;
+  i, cluster, nextCluster: Integer;
+  fname: string;
+begin
+  fs := TFileStream.Create(ImgName, fmOpenReadWrite);
+  try
+    // read root directory
+    fs.Position := RootDirStart;
+    fs.ReadBuffer(dir, SizeOf(dir));
+
+    fname := UpperCase(FileName);
+
+    // find file
+    for i := 0 to High(dir) do
+    begin
+      if (dir[i].Name[0] <> #0) and (Byte(dir[i].Name[0]) <> $E5) then
+      begin
+        if Trim(string(dir[i].Name)) + '.' + Trim(string(dir[i].Ext)) = fname then
+        begin
+          // load first FAT copy
+          SetLength(FAT, SectorsPerFat * BytesPerSector);
+          fs.Position := ReservedSectors * BytesPerSector;
+          fs.ReadBuffer(FAT[0], Length(FAT));
+
+          // free clusters
+          cluster := dir[i].FirstCluster;
+          while (cluster >= 2) and (cluster < $FF8) do
+          begin
+            nextCluster := ReadFATEntry(FAT, cluster);
+            WriteFATEntry(FAT, cluster, 0); // mark cluster free
+            cluster := nextCluster;
+          end;
+
+          // write FAT back (both copies)
+          fs.Position := ReservedSectors * BytesPerSector;
+          fs.WriteBuffer(FAT[0], Length(FAT));
+          fs.Position := (ReservedSectors + SectorsPerFat) * BytesPerSector;
+          fs.WriteBuffer(FAT[0], Length(FAT));
+
+          // mark dir entry deleted
+          dir[i].Name[0] := #$E5;
+          fs.Position := RootDirStart + i * SizeOf(TFat12DirEntry);
+          fs.WriteBuffer(dir[i], SizeOf(dir[i]));
+
+          Exit;
+        end;
+      end;
+    end;
+
+    raise Exception.Create('File not found in image');
+  finally
+    fs.Free;
+  end;
+end;
+
+
+function TForm1.ReadFATEntry(const FAT: TBytes; Cluster: Word): Word;
+var
+  Offset: Integer;
+  Value: Word;
+begin
+  // FAT12: each entry = 12 bits
+  Offset := (Cluster * 3) div 2;
+
+  if (Cluster and 1) = 0 then
+  begin
+    // even cluster
+    Value := FAT[Offset] or (FAT[Offset + 1] shl 8);
+    Result := Value and $0FFF;
+  end
+  else
+  begin
+    // odd cluster
+    Value := FAT[Offset] or (FAT[Offset + 1] shl 8);
+    Result := Value shr 4;
+  end;
+end;
+
+procedure TForm1.WriteFATEntry(var FAT: TBytes; Cluster, Value: Word);
+var
+  Offset: Integer;
+begin
+  Offset := (Cluster * 3) div 2;
+
+  if (Cluster and 1) = 0 then
+  begin
+    // even cluster
+    FAT[Offset]     := Value and $FF;
+    FAT[Offset + 1] := (FAT[Offset + 1] and $F0) or ((Value shr 8) and $0F);
+  end
+  else
+  begin
+    // odd cluster
+    FAT[Offset]     := (FAT[Offset] and $0F) or ((Value shl 4) and $F0);
+    FAT[Offset + 1] := (Value shr 4) and $FF;
+  end;
+end;
+
+  // Works with 360k, 720k, 1.44M
+  //CopyFileFromImage('disk.img', 'TEST.BAS', 'C:\TEMP\TEST.BAS');
+procedure TForm1.CopyFileFromImage(const ImgName, FileName, HostFile: string);
+var
+  fs, hs: TFileStream;
+  dir: array[0..RootDirEntries-1] of TFat12DirEntry;
+  FAT: TBytes;
+  i, cluster, nextCluster, bytesToRead: Integer;
+  fname: string;
+  dataStart, clusterSize: Int64;
+  buf: TBytes;
+begin
+  fs := TFileStream.Create(ImgName, fmOpenRead);
+  try
+    // read root dir
+    fs.Position := RootDirStart;
+    fs.ReadBuffer(dir, SizeOf(dir));
+
+    fname := UpperCase(FileName);
+
+    for i := 0 to High(dir) do
+    begin
+      if (dir[i].Name[0] <> #0) and (Byte(dir[i].Name[0]) <> $E5) then
+      begin
+        if Trim(string(dir[i].Name)) + '.' + Trim(string(dir[i].Ext)) = fname then
+        begin
+          // load FAT (use first copy only)
+          SetLength(FAT, SectorsPerFat * BytesPerSector);
+          fs.Position := ReservedSectors * BytesPerSector;
+          fs.ReadBuffer(FAT[0], Length(FAT));
+
+          // prepare host file
+          hs := TFileStream.Create(HostFile, fmCreate);
+          try
+            clusterSize := BytesPerSector * SectorsPerCluster;
+            dataStart := RootDirStart + RootDirSectors * BytesPerSector;
+            cluster := dir[i].FirstCluster;
+            bytesToRead := dir[i].FileSize;
+
+            while (cluster >= 2) and (cluster < $FF8) do
+            begin
+              fs.Position := dataStart + (cluster - 2) * clusterSize;
+
+              SetLength(buf, clusterSize);
+              fs.ReadBuffer(buf[0], clusterSize);
+
+              if bytesToRead < clusterSize then
+                hs.WriteBuffer(buf[0], bytesToRead)
+              else
+                hs.WriteBuffer(buf[0], clusterSize);
+
+              Dec(bytesToRead, clusterSize);
+              if bytesToRead <= 0 then Break;
+
+              nextCluster := ReadFATEntry(FAT, cluster);
+              cluster := nextCluster;
+            end;
+          finally
+            hs.Free;
+          end;
+
+          Exit;
+        end;
+      end;
+    end;
+
+    raise Exception.Create('File not found in image');
+  finally
+    fs.Free;
+  end;
+end;
+
+
+procedure TForm1.AddFileToImage(const ImgName, HostFile: string);
+var
+  fs, hs: TFileStream;
+  dir: array[0..RootDirEntries-1] of TFat12DirEntry;
+  FAT: TBytes;
+  entry: TFat12DirEntry;
+  fname, ext: string;
+  clusterSize, dataStart: Int64;
+  freeDir, cluster, lastCluster, needClusters, fileRemaining: Integer;
+  buf: TBytes;
+begin
+  fs := TFileStream.Create(ImgName, fmOpenReadWrite);
+  try
+    // load root dir
+    fs.Position := RootDirStart;
+    fs.ReadBuffer(dir, SizeOf(dir));
+
+    // find free dir slot
+    freeDir := -1;
+    for cluster := 0 to High(dir) do
+      if dir[cluster].Name[0] in [#0, #$E5] then
+      begin
+        freeDir := cluster;
+        Break;
+      end;
+    if freeDir < 0 then
+      raise Exception.Create('No free directory entry');
+
+    // load FAT (first copy only)
+    SetLength(FAT, SectorsPerFat * BytesPerSector);
+    fs.Position := ReservedSectors * BytesPerSector;
+    fs.ReadBuffer(FAT[0], Length(FAT));
+
+    // prepare new dir entry
+    FillChar(entry, SizeOf(entry), 0);
+    fname := UpperCase(ExtractFileName(HostFile));
+    ext := '';
+    if Pos('.', fname) > 0 then
+    begin
+      ext := Copy(fname, Pos('.', fname) + 1, 3);
+      fname := Copy(fname, 1, Pos('.', fname) - 1);
+    end;
+    fname := Copy(fname + StringOfChar(' ', 8), 1, 8);
+    ext   := Copy(ext   + StringOfChar(' ', 3), 1, 3);
+    Move(PAnsiChar(AnsiString(fname))^, entry.Name, 8);
+    Move(PAnsiChar(AnsiString(ext))^, entry.Ext, 3);
+
+    hs := TFileStream.Create(HostFile, fmOpenRead);
+    try
+      entry.FileSize := hs.Size;
+
+      clusterSize := BytesPerSector * SectorsPerCluster;
+      dataStart   := RootDirStart + RootDirSectors * BytesPerSector;
+
+      fileRemaining := hs.Size;
+      lastCluster := -1;
+      entry.FirstCluster := 0;
+
+      SetLength(buf, clusterSize);
+
+      while fileRemaining > 0 do
+      begin
+        // find next free cluster
+        for cluster := 2 to (Length(FAT) * 2) div 3 - 1 do
+          if ReadFATEntry(FAT, cluster) = 0 then
+            Break;
+        if cluster < 2 then
+          raise Exception.Create('No free clusters in FAT');
+
+        if entry.FirstCluster = 0 then
+          entry.FirstCluster := cluster;
+
+        // link cluster chain
+        if lastCluster > 0 then
+          WriteFATEntry(FAT, lastCluster, cluster);
+
+        lastCluster := cluster;
+
+        // write data
+        FillChar(buf[0], clusterSize, 0);
+        if fileRemaining < clusterSize then
+          hs.ReadBuffer(buf[0], fileRemaining)
+        else
+          hs.ReadBuffer(buf[0], clusterSize);
+
+        fs.Position := dataStart + (cluster - 2) * clusterSize;
+        fs.WriteBuffer(buf[0], clusterSize);
+
+        Dec(fileRemaining, clusterSize);
+      end;
+
+      // mark last cluster as EOF
+      WriteFATEntry(FAT, lastCluster, $FFF);
+    finally
+      hs.Free;
+    end;
+
+    // write FAT back (to both copies)
+    fs.Position := ReservedSectors * BytesPerSector;
+    fs.WriteBuffer(FAT[0], Length(FAT));
+    fs.Position := (ReservedSectors + SectorsPerFat) * BytesPerSector;
+    fs.WriteBuffer(FAT[0], Length(FAT));
+
+    // write directory entry
+    fs.Position := RootDirStart + freeDir * SizeOf(TFat12DirEntry);
+    fs.WriteBuffer(entry, SizeOf(entry));
+  finally
+    fs.Free;
+  end;
+end;
+
+// ListFreeClusters('disk.img');
+procedure TForm1.ListFreeClusters(const ImgName: string);
+var
+  fs: TFileStream;
+  FAT: TBytes;
+  cluster, freeCount: Integer;
+begin
+  fs := TFileStream.Create(ImgName, fmOpenRead);
+  try
+    // read first FAT copy
+    SetLength(FAT, SectorsPerFat * BytesPerSector);
+    fs.Position := ReservedSectors * BytesPerSector;
+    fs.ReadBuffer(FAT[0], Length(FAT));
+
+    freeCount := 0;
+    for cluster := 2 to (Length(FAT) * 2) div 3 - 1 do
+      if ReadFATEntry(FAT, cluster) = 0 then
+        Inc(freeCount);
+
+    Writeln(Format('Free clusters: %d (%d bytes available)',
+      [freeCount, freeCount * BytesPerSector * SectorsPerCluster]));
+  finally
+    fs.Free;
+  end;
+end;
+
+{
+priklad:
+var
+  fmt: TFloppyFormat;
+begin
+  fmt := DetectFloppyFormat('disk.img');
+  Writeln('BytesPerSector: ', fmt.BytesPerSector);
+  Writeln('SectorsPerCluster: ', fmt.SectorsPerCluster);
+  Writeln('RootDirStart: ', RootDirStart(fmt));
+  Writeln('RootDirSectors: ', RootDirSectors(fmt));
+end.
+
+}
+
+function TForm1.DetectFloppyFormat(const ImgName: string): TFloppyFormat;
+var
+  sz: Int64;
+begin
+  sz := FileSize(ImgName);
+
+  case sz of
+    368640:  // 360 KB 5.25" DD
+      begin
+        Result.BytesPerSector    := 512;
+        Result.SectorsPerCluster := 2;
+        Result.ReservedSectors   := 1;
+        Result.NumberOfFats      := 2;
+        Result.RootDirEntries    := 112;
+        Result.SectorsPerFat     := 2;
+        Result.HiddenSectors     := 0;
+      end;
+    737280:  // 720 KB 3.5" DD
+      begin
+        Result.BytesPerSector    := 512;
+        Result.SectorsPerCluster := 2;
+        Result.ReservedSectors   := 1;
+        Result.NumberOfFats      := 2;
+        Result.RootDirEntries    := 112;
+        Result.SectorsPerFat     := 3;
+        Result.HiddenSectors     := 0;
+      end;
+    1228800: // 1.2 MB 5.25" HD
+      begin
+        Result.BytesPerSector    := 512;
+        Result.SectorsPerCluster := 1;
+        Result.ReservedSectors   := 1;
+        Result.NumberOfFats      := 2;
+        Result.RootDirEntries    := 224;
+        Result.SectorsPerFat     := 6;
+        Result.HiddenSectors     := 0;
+      end;
+    1474560: // 1.44 MB 3.5" HD
+      begin
+        Result.BytesPerSector    := 512;
+        Result.SectorsPerCluster := 1;
+        Result.ReservedSectors   := 1;
+        Result.NumberOfFats      := 2;
+        Result.RootDirEntries    := 224;
+        Result.SectorsPerFat     := 9;
+        Result.HiddenSectors     := 0;
+      end;
+  else
+    raise Exception.Create('Unknown floppy image size: ' + IntToStr(sz));
+  end;
+end;
+
+
+end.
