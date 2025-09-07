@@ -1,10 +1,11 @@
-unit Unit1;
+﻿unit Unit1;
 
 interface
 
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
-  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ComCtrls,System.IOUtils;
+  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ComCtrls,System.IOUtils,
+  Vcl.FileCtrl;
 
 type
   TFat12DirEntry = packed record
@@ -72,8 +73,12 @@ type
     Button1: TButton;
     RichEdit1: TRichEdit;
     Button2: TButton;
+    FileListBox1: TFileListBox;
+    DirectoryListBox1: TDirectoryListBox;
+    DriveComboBox1: TDriveComboBox;
     procedure Button1Click(Sender: TObject);
     procedure Button2Click(Sender: TObject);
+    procedure DirectoryListBox1Change(Sender: TObject);
   private
     { Private declarations }
   public
@@ -86,6 +91,7 @@ type
     procedure CopyFileFromImage(const ImgName, FileName, HostFile: string);
     procedure AddFileToImage(const ImgName, HostFile: string);
     procedure ListFreeClusters(const ImgName: string);
+    procedure CreateBlankImage(const FileName, FormatName: string);
   end;
 
 var
@@ -511,5 +517,49 @@ begin
   end;
 end;
 
+procedure TForm1.DirectoryListBox1Change(Sender: TObject);
+begin
+
+end;
+
+{ priklad:
+  CreateBlankImage('A:\disk360.img', '360k');
+  CreateBlankImage('C:\tmp\disk720.img', '720k');
+  CreateBlankImage('C:\tmp\disk12.img', '1.2m');
+  CreateBlankImage('C:\tmp\disk144.img', '1.44m');
+}
+
+procedure TForm1.CreateBlankImage(const FileName, FormatName: string);
+var
+  fs: TFileStream;
+  sz: Int64;
+  Zero: Byte;
+begin
+  if FileExists(FileName) then
+    raise Exception.Create('File already exists: ' + FileName);
+
+  if SameText(FormatName, '360k') then
+    sz := 360 * 1024
+  else if SameText(FormatName, '720k') then
+    sz := 720 * 1024
+  else if SameText(FormatName, '1.2m') then
+    sz := 1200 * 1024
+  else if SameText(FormatName, '1.44m') then
+    sz := 1440 * 1024
+  else
+    raise Exception.Create('Unknown format: ' + FormatName);
+
+  fs := TFileStream.Create(FileName, fmCreate);
+  try
+    Zero := 0;
+    fs.Size := sz;
+    fs.Position := 0;
+    fs.WriteBuffer(Zero, 1);   // zapíš prvý bajt
+    fs.Position := sz - 1;     // preskoč na koniec
+    fs.WriteBuffer(Zero, 1);   // zapíš posledný bajt -> vytvorí sa reálny súbor
+  finally
+    fs.Free;
+  end;
+end;
 
 end.

@@ -12,8 +12,8 @@ object Form1: TForm1
   Font.Style = []
   TextHeight = 15
   object Button1: TButton
-    Left = 32
-    Top = 40
+    Left = 40
+    Top = 8
     Width = 75
     Height = 25
     Caption = 'read'
@@ -36,12 +36,36 @@ object Form1: TForm1
     TabOrder = 1
   end
   object Button2: TButton
-    Left = 32
-    Top = 88
+    Left = 152
+    Top = 8
     Width = 75
     Height = 25
     Caption = 'Delete'
     TabOrder = 2
     OnClick = Button2Click
+  end
+  object FileListBox1: TFileListBox
+    Left = 8
+    Top = 312
+    Width = 281
+    Height = 271
+    ItemHeight = 15
+    MultiSelect = True
+    TabOrder = 3
+  end
+  object DirectoryListBox1: TDirectoryListBox
+    Left = 8
+    Top = 209
+    Width = 281
+    Height = 97
+    TabOrder = 4
+    OnChange = DirectoryListBox1Change
+  end
+  object DriveComboBox1: TDriveComboBox
+    Left = 8
+    Top = 182
+    Width = 281
+    Height = 21
+    TabOrder = 5
   end
 end
