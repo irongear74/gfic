@@ -5,7 +5,7 @@ interface
 uses
   Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
   Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, Vcl.ComCtrls,System.IOUtils,
-  Vcl.FileCtrl;
+  Vcl.FileCtrl,Winapi.ShellAPI;
 
 type
   TFat12DirEntry = packed record
@@ -76,9 +76,10 @@ type
     FileListBox1: TFileListBox;
     DirectoryListBox1: TDirectoryListBox;
     DriveComboBox1: TDriveComboBox;
+    ListView1: TListView;
     procedure Button1Click(Sender: TObject);
     procedure Button2Click(Sender: TObject);
-    procedure DirectoryListBox1Change(Sender: TObject);
+    procedure FormCreate(Sender: TObject);
   private
     { Private declarations }
   public
@@ -92,6 +93,8 @@ type
     procedure AddFileToImage(const ImgName, HostFile: string);
     procedure ListFreeClusters(const ImgName: string);
     procedure CreateBlankImage(const FileName, FormatName: string);
+    procedure WMDropFiles(var Msg: TWMDropFiles); message WM_DROPFILES;
+    procedure AddPathRecursive(const APath: string);
   end;
 
 var
@@ -137,7 +140,8 @@ end;
 
 procedure TForm1.Button2Click(Sender: TObject);
 begin
-  DeleteFileFromImage('zzz.img', 'click.com');
+//  DeleteFileFromImage('zzz.img', 'click.com');
+  ListView1.DeleteSelected;
 end;
 
 
@@ -519,9 +523,16 @@ begin
   end;
 end;
 
-procedure TForm1.DirectoryListBox1Change(Sender: TObject);
+procedure TForm1.FormCreate(Sender: TObject);
 begin
+  // ListView nastavenie
+  ListView1.ViewStyle := vsReport;
+  ListView1.Columns.Add.Caption := 'File name';
+  ListView1.Columns.Add.Caption := 'Path';
+  ListView1.Columns[0].AutoSize:=true;
+  ListView1.Columns[1].AutoSize:=true;
 
+  DragAcceptFiles(Handle, True);
 end;
 
 { priklad:
@@ -561,6 +572,49 @@ begin
     fs.WriteBuffer(Zero, 1);   // zapíš posledný bajt -> vytvorí sa reálny súbor
   finally
     fs.Free;
+  end;
+end;
+
+procedure TForm1.WMDropFiles(var Msg: TWMDropFiles);
+var
+  FileName: array[0..MAX_PATH] of Char;
+  I, Count: Integer;
+begin
+  Count := DragQueryFile(Msg.Drop, $FFFFFFFF, nil, 0);
+  for I := 0 to Count - 1 do
+  begin
+    DragQueryFile(Msg.Drop, I, FileName, MAX_PATH);
+    AddPathRecursive(FileName);
+  end;
+  DragFinish(Msg.Drop);
+end;
+
+
+procedure TForm1.AddPathRecursive(const APath: string);
+var
+  SR: TSearchRec;
+  Res: Integer;
+  Item: TListItem;
+begin
+  if DirectoryExists(APath) then
+  begin
+    Res := FindFirst(IncludeTrailingPathDelimiter(APath) + '*.*', faAnyFile, SR);
+    try
+      while Res = 0 do
+      begin
+        if (SR.Name <> '.') and (SR.Name <> '..') then
+          AddPathRecursive(IncludeTrailingPathDelimiter(APath) + SR.Name);
+        Res := FindNext(SR);
+      end;
+    finally
+      FindClose(SR);
+    end;
+  end
+  else if FileExists(APath) then
+  begin
+    Item := ListView1.Items.Add;
+    Item.Caption := ExtractFileName(APath);
+    Item.SubItems.Add(ExtractFilePath(APath));
   end;
 end;
 

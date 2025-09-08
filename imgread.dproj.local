@@ -1,9 +1,10 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <BorlandProject>
 	<Transactions>
-    <Transaction>2025/09/06 22:48:19.000.822,=C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Unit1.pas</Transaction>
-    <Transaction>2025/09/06 22:54:18.000.823,C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Unit1.dfm=C:\homework\delphi\imgread\Unit1.dfm</Transaction>
-    <Transaction>2025/09/06 22:54:18.000.823,C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Unit1.pas=C:\homework\delphi\imgread\Unit1.pas</Transaction>
-    <Transaction>2025/09/06 22:54:30.000.100,C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Project1.dproj=C:\homework\delphi\imgread\imgread.dproj</Transaction>
+    <Transaction>2025.09.06 22:48:19.000.822,=C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Unit1.pas</Transaction>
+    <Transaction>2025.09.06 22:54:18.000.823,C:\homework\delphi\imgread\Unit1.pas=C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Unit1.pas</Transaction>
+    <Transaction>2025.09.06 22:54:18.000.823,C:\homework\delphi\imgread\Unit1.dfm=C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Unit1.dfm</Transaction>
+    <Transaction>2025.09.06 22:54:30.000.100,C:\homework\delphi\imgread\imgread.dproj=C:\Users\jendr\Documents\Embarcadero\Studio\Projects\Project1.dproj</Transaction>
+    <Transaction>2025.09.08 09:15:13.161,=C:\homework\delphi\gfic\Fat12Img.pas</Transaction>
   </Transactions>
 </BorlandProject>
